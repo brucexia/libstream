@@ -22,6 +22,8 @@ import java.io.File;
 import java.io.IOException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+
+import net.majorkernelpanic.streaming.CameraDelegate;
 import net.majorkernelpanic.streaming.SessionBuilder;
 import net.majorkernelpanic.streaming.exceptions.ConfNotSupportedException;
 import net.majorkernelpanic.streaming.exceptions.StorageUnavailableException;
@@ -67,6 +69,14 @@ public class H264Stream extends VideoStream {
 	 */
 	public H264Stream(int cameraId) {
 		super(cameraId);
+		mMimeType = "video/avc";
+		mCameraImageFormat = ImageFormat.NV21;
+		mVideoEncoder = MediaRecorder.VideoEncoder.H264;
+		mPacketizer = new H264Packetizer();
+	}
+
+	public H264Stream(CameraDelegate delegate) {
+		super(delegate);
 		mMimeType = "video/avc";
 		mCameraImageFormat = ImageFormat.NV21;
 		mVideoEncoder = MediaRecorder.VideoEncoder.H264;
@@ -119,9 +129,10 @@ public class H264Stream extends VideoStream {
 
 	@SuppressLint("NewApi")
 	private MP4Config testMediaCodecAPI() throws RuntimeException, IOException {
-		createCamera();
-		updateCamera();
+//		createCamera();
+//		updateCamera();
 		try {
+			mQuality = cameraDelegate.getQuality();
 			if (mQuality.resX>=640) {
 				// Using the MediaCodec API with the buffer method for high resolutions is too slow
 				mMode = MODE_MEDIARECORDER_API;
@@ -167,16 +178,16 @@ public class H264Stream extends VideoStream {
 		boolean previewStarted = mPreviewStarted;
 		
 		boolean cameraOpen = mCamera!=null;
-		createCamera();
+//		createCamera();
 
 		// Stops the preview if needed
-		if (mPreviewStarted) {
-			lockCamera();
-			try {
-				mCamera.stopPreview();
-			} catch (Exception e) {}
-			mPreviewStarted = false;
-		}
+//		if (mPreviewStarted) {
+//			lockCamera();
+//			try {
+//				mCamera.stopPreview();
+//			} catch (Exception e) {}
+//			mPreviewStarted = false;
+//		}
 
 		try {
 			Thread.sleep(100);
@@ -190,7 +201,7 @@ public class H264Stream extends VideoStream {
 		try {
 			
 			mMediaRecorder = new MediaRecorder();
-			mMediaRecorder.setCamera(mCamera);
+			mMediaRecorder.setCamera(cameraDelegate.getCamera());
 			mMediaRecorder.setVideoSource(MediaRecorder.VideoSource.CAMERA);
 			mMediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP);
 			mMediaRecorder.setVideoEncoder(mVideoEncoder);
@@ -241,7 +252,7 @@ public class H264Stream extends VideoStream {
 			mMediaRecorder.release();
 			mMediaRecorder = null;
 			lockCamera();
-			if (!cameraOpen) destroyCamera();
+//			if (!cameraOpen) destroyCamera();
 			// Restore flash state
 			mFlashEnabled = savedFlashState;
 			if (previewStarted) {

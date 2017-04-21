@@ -64,7 +64,7 @@ public abstract class MediaStream implements Stream {
 	/** The packetizer that will read the output of the camera and send RTP packets over the networked. */
 	protected AbstractPacketizer mPacketizer = null;
 
-	protected static byte sSuggestedMode = MODE_MEDIARECORDER_API;
+	protected static byte sSuggestedMode = MODE_MEDIACODEC_API;
 	protected byte mMode, mRequestedMode;
 
 	/** 

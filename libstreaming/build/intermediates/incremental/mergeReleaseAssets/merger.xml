@@ -1,2 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<merger version="3"><dataSet config="main"><source path="/Users/brucexia/libraries/example1/libstreaming/src/main/assets"/><source path="/Users/brucexia/libraries/example1/libstreaming/build/generated/assets/shaders/release"/></dataSet><dataSet config="release"><source path="/Users/brucexia/libraries/example1/libstreaming/src/release/assets"/></dataSet></merger>

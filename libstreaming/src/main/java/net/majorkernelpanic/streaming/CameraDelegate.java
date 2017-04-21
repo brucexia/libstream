@@ -1,18 +1,26 @@
 package net.majorkernelpanic.streaming;
 
+import android.content.Context;
 import android.content.SharedPreferences;
+import android.graphics.ImageFormat;
 import android.hardware.Camera;
 import android.os.Looper;
+import android.preference.PreferenceManager;
 import android.util.Log;
 import android.view.SurfaceHolder;
 
 import net.majorkernelpanic.streaming.exceptions.CameraInUseException;
 import net.majorkernelpanic.streaming.exceptions.InvalidSurfaceException;
 import net.majorkernelpanic.streaming.gl.SurfaceView;
+import net.majorkernelpanic.streaming.hw.EncoderDebugger;
+import net.majorkernelpanic.streaming.hw.NV21Convertor;
 import net.majorkernelpanic.streaming.video.VideoQuality;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
 import static net.majorkernelpanic.streaming.MediaStream.MODE_MEDIACODEC_API;
 import static net.majorkernelpanic.streaming.MediaStream.MODE_MEDIACODEC_API_2;
@@ -22,7 +30,8 @@ import static net.majorkernelpanic.streaming.MediaStream.MODE_MEDIACODEC_API_2;
  */
 
 public class CameraDelegate {
-    protected final static String TAG = "VideoStream";
+    protected final static String TAG = "CameraDelegate";
+    protected static final String PREF_PREFIX = "libstreaming-";
 
     protected VideoQuality mRequestedQuality = VideoQuality.DEFAULT_VIDEO_QUALITY.clone();
     protected VideoQuality mQuality = mRequestedQuality.clone();
@@ -48,11 +57,48 @@ public class CameraDelegate {
     protected int mCameraImageFormat;
     protected int mMaxFps = 0;
     protected byte mMode, mRequestedMode;
+    Context mContext;
+
+    List<FrameListener> listners = new ArrayList<>();
+
+    public interface FrameListener {
+        void onPreviewFrame(byte[] data);
+    }
+
+    public void addListener(FrameListener listener) {
+        listners.add(listener);
+    }
+
+    public void removeListener(FrameListener listener) {
+        listners.remove(listener);
+    }
+
+    public CameraDelegate(Context context) {
+        mCameraImageFormat = ImageFormat.NV21;
+        mContext = context.getApplicationContext();
+        mSettings = PreferenceManager.getDefaultSharedPreferences(mContext);
+    }
+
+    public VideoQuality getRequestedQuality() {
+        return mRequestedQuality;
+    }
+
+    public VideoQuality getQuality() {
+        return mQuality;
+    }
+
+    public int getOrientation() {
+        return mOrientation;
+    }
+
+    public void setOrientation(int mOrientation) {
+        this.mOrientation = mOrientation;
+    }
 
     /**
      * Switch between the front facing and the back facing camera of the phone.
      * If {@link #startPreview()} has been called, the preview will be  briefly interrupted.
-     * If {@link #start()} has been called, the stream will be  briefly interrupted.
+     * If { #start()} has been called, the stream will be  briefly interrupted.
      * You should not call this method from the main thread if you are already streaming.
      *
      * @throws IOException
@@ -61,13 +107,12 @@ public class CameraDelegate {
     public void switchCamera() throws RuntimeException, IOException {
         if (android.hardware.Camera.getNumberOfCameras() == 1)
             throw new IllegalStateException("Phone only has one camera !");
-//        boolean streaming = mStreaming;
         boolean previewing = mCamera != null && mCameraOpenedManually;
         mCameraId = (mCameraId == android.hardware.Camera.CameraInfo.CAMERA_FACING_BACK) ? android.hardware.Camera.CameraInfo.CAMERA_FACING_FRONT : android.hardware.Camera.CameraInfo.CAMERA_FACING_BACK;
         setCamera(mCameraId);
         stopPreview();
         mFlashEnabled = false;
-//		if (previewing) startPreview();
+        if (previewing) startPreview();
     }
 
     public Camera getCamera() {
@@ -75,8 +120,8 @@ public class CameraDelegate {
     }
 
     public synchronized void stopPreview() {
-//		mCameraOpenedManually = false;
-		stop();
+        mCameraOpenedManually = false;
+        stop();
     }
 
     public synchronized void startPreview()
@@ -84,24 +129,31 @@ public class CameraDelegate {
             InvalidSurfaceException,
             RuntimeException {
 
-//		mCameraOpenedManually = true;
-		if (!mPreviewStarted) {
-			createCamera();
-			updateCamera();
-		}
+        mCameraOpenedManually = true;
+        if (!mPreviewStarted) {
+            if (mSurfaceView.getHolder() == null || !mSurfaceReady){
+                startRequested=true;
+                return;
+            }
+            createCamera();
+            updateCamera();
+        }
     }
-    /** Stops the stream. */
+
+    /**
+     * Stops the stream.
+     */
     public synchronized void stop() {
-		if (mCamera != null) {
-			if (mMode == MODE_MEDIACODEC_API) {
-				mCamera.setPreviewCallbackWithBuffer(null);
-			}
-			if (mMode == MODE_MEDIACODEC_API_2) {
-				((SurfaceView)mSurfaceView).removeMediaCodecSurface();
-			}
+        if (mCamera != null) {
+            if (mMode == MODE_MEDIACODEC_API) {
+//                mCamera.setPreviewCallbackWithBuffer(null);
+            }
+            if (mMode == MODE_MEDIACODEC_API_2) {
+                ((SurfaceView) mSurfaceView).removeMediaCodecSurface();
+            }
 //			super.stop();
-			// We need to restart the preview
-				destroyCamera();
+            // We need to restart the preview
+            destroyCamera();
 //			} else {
 //				try {
 //					startPreview();
@@ -109,8 +161,9 @@ public class CameraDelegate {
 //					e.printStackTrace();
 //				}
 //			}
-		}
+        }
     }
+
     public void setCamera(int camera) {
         android.hardware.Camera.CameraInfo cameraInfo = new android.hardware.Camera.CameraInfo();
         int numberOfCameras = android.hardware.Camera.getNumberOfCameras();
@@ -138,7 +191,9 @@ public class CameraDelegate {
                 Looper.prepare();
                 mCameraLooper = Looper.myLooper();
                 try {
+
                     mCamera = android.hardware.Camera.open(mCameraId);
+
                 } catch (RuntimeException e) {
                     exception[0] = e;
                 } finally {
@@ -151,12 +206,16 @@ public class CameraDelegate {
         lock.acquireUninterruptibly();
         if (exception[0] != null) throw new CameraInUseException(exception[0].getMessage());
     }
+    boolean startRequested;
 
     public synchronized void createCamera() throws RuntimeException {
         if (mSurfaceView == null)
             throw new InvalidSurfaceException("Invalid surface !");
-        if (mSurfaceView.getHolder() == null || !mSurfaceReady)
-            throw new InvalidSurfaceException("Invalid surface !");
+        if (mSurfaceView.getHolder() == null || !mSurfaceReady){
+            startRequested=true;
+            return;
+        }
+//            throw new InvalidSurfaceException("Invalid surface !");
 
         if (mCamera == null) {
             openCamera();
@@ -250,16 +309,34 @@ public class CameraDelegate {
         try {
             mCamera.setParameters(parameters);
             mCamera.setDisplayOrientation(mOrientation);
+            mCamera.setPreviewDisplay(mSurfaceView.getHolder());
             mCamera.startPreview();
             mPreviewStarted = true;
             mUpdated = true;
+//            measureFramerate();
+            mCamera.setPreviewCallbackWithBuffer(new Camera.PreviewCallback() {
+                @Override
+                public void onPreviewFrame(byte[] data, Camera camera) {
+                    for(FrameListener l: listners){
+                        l.onPreviewFrame(data);
+                    }
+                }
+            });
+
+            EncoderDebugger debugger = EncoderDebugger.debug(mSettings, mQuality.resX, mQuality.resY);
+            final NV21Convertor convertor = debugger.getNV21Convertor();
+            for (int i=0;i<10;i++)mCamera.addCallbackBuffer(new byte[convertor.getBufferSize()]);
+
         } catch (RuntimeException e) {
             destroyCamera();
             throw e;
+        } catch (IOException ioe) {
+            destroyCamera();
+            Log.d(TAG, ioe.getMessage(), ioe);
         }
     }
 
-    protected void lockCamera() {
+    public void lockCamera() {
         if (mUnlocked) {
             Log.d(TAG, "Locking camera");
             try {
@@ -271,7 +348,7 @@ public class CameraDelegate {
         }
     }
 
-    protected void unlockCamera() {
+    public void unlockCamera() {
         if (!mUnlocked) {
             Log.d(TAG, "Unlocking camera");
             try {
@@ -282,22 +359,23 @@ public class CameraDelegate {
             mUnlocked = true;
         }
     }
+
     public synchronized void setFlashState(boolean state) {
         // If the camera has already been opened, we apply the change immediately
         if (mCamera != null) {
 
 //            if (mStreaming && mMode == MODE_MEDIARECORDER_API) {
-                lockCamera();
+            lockCamera();
 //            }
 
             Camera.Parameters parameters = mCamera.getParameters();
 
             // We test if the phone has a flash
-            if (parameters.getFlashMode()==null) {
+            if (parameters.getFlashMode() == null) {
                 // The phone has no flash or the choosen camera can not toggle the flash
                 throw new RuntimeException("Can't turn the flash on !");
             } else {
-                parameters.setFlashMode(state? Camera.Parameters.FLASH_MODE_TORCH: Camera.Parameters.FLASH_MODE_OFF);
+                parameters.setFlashMode(state ? Camera.Parameters.FLASH_MODE_TORCH : Camera.Parameters.FLASH_MODE_OFF);
                 try {
                     mCamera.setParameters(parameters);
                     mFlashEnabled = state;
@@ -306,7 +384,7 @@ public class CameraDelegate {
                     throw new RuntimeException("Can't turn the flash on !");
                 } finally {
 //                    if (mStreaming && mMode == MODE_MEDIARECORDER_API) {
-                        unlockCamera();
+                    unlockCamera();
 //                    }
                 }
             }
@@ -314,4 +392,79 @@ public class CameraDelegate {
             mFlashEnabled = state;
         }
     }
+
+    /**
+     * Computes the average frame rate at which the preview callback is called.
+     * We will then use this average frame rate with the MediaCodec.
+     * Blocks the thread in which this function is called.
+     */
+    private void measureFramerate() {
+        final Semaphore lock = new Semaphore(0);
+
+        final Camera.PreviewCallback callback = new Camera.PreviewCallback() {
+            int i = 0, t = 0;
+            long now, oldnow, count = 0;
+
+            @Override
+            public void onPreviewFrame(byte[] data, Camera camera) {
+                i++;
+                now = System.nanoTime() / 1000;
+                if (i > 3) {
+                    t += now - oldnow;
+                    count++;
+                }
+                if (i > 20) {
+                    mQuality.framerate = (int) (1000000 / (t / count) + 1);
+                    lock.release();
+                }
+                oldnow = now;
+            }
+        };
+
+        mCamera.setPreviewCallback(callback);
+
+        try {
+            lock.tryAcquire(2, TimeUnit.SECONDS);
+            Log.d(TAG, "Actual framerate: " + mQuality.framerate);
+            if (mSettings != null) {
+                SharedPreferences.Editor editor = mSettings.edit();
+                editor.putInt(PREF_PREFIX + "fps" + mRequestedQuality.framerate + "," + mCameraImageFormat + "," + mRequestedQuality.resX + mRequestedQuality.resY, mQuality.framerate);
+                editor.commit();
+            }
+        } catch (InterruptedException e) {
+        }
+
+        mCamera.setPreviewCallback(null);
+    }
+
+    public synchronized void setSurfaceView(SurfaceView view) {
+        mSurfaceView = view;
+        if (mSurfaceHolderCallback != null && mSurfaceView != null && mSurfaceView.getHolder() != null) {
+            mSurfaceView.getHolder().removeCallback(mSurfaceHolderCallback);
+        }
+        if (mSurfaceView != null && mSurfaceView.getHolder() != null) {
+            mSurfaceHolderCallback = new SurfaceHolder.Callback() {
+                @Override
+                public void surfaceDestroyed(SurfaceHolder holder) {
+                    mSurfaceReady = false;
+                    stopPreview();
+                    Log.d(TAG, "Surface destroyed !");
+                }
+
+                @Override
+                public void surfaceCreated(SurfaceHolder holder) {
+                    mSurfaceReady = true;
+                    startPreview();
+                }
+
+                @Override
+                public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+                    Log.d(TAG, "Surface Changed !");
+                }
+            };
+            mSurfaceView.getHolder().addCallback(mSurfaceHolderCallback);
+//            mSurfaceReady = true;
+        }
+    }
+
 }
