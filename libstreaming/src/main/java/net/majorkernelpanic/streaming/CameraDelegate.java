@@ -67,6 +67,14 @@ public class CameraDelegate {
 
     public void addListener(FrameListener listener) {
         listners.add(listener);
+        mCamera.setPreviewCallbackWithBuffer(new Camera.PreviewCallback() {
+            @Override
+            public void onPreviewFrame(byte[] data, Camera camera) {
+                for(FrameListener l: listners){
+                    l.onPreviewFrame(data);
+                }
+            }
+        });
     }
 
     public void removeListener(FrameListener listener) {

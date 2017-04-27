@@ -486,10 +486,10 @@ public abstract class VideoStream extends MediaStream {
         mMediaCodec.configure(mediaFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
         mMediaCodec.start();
 
-        Camera.PreviewCallback previewCallback = new Camera.PreviewCallback() {
+//        Camera.PreviewCallback previewCallback = new Camera.PreviewCallback() {
+        callback = new CameraDelegate.FrameListener() {
             @Override
-            public void onPreviewFrame(byte[] data, Camera camera) {
-
+            public void onPreviewFrame(byte[] data) {
                 long now = System.nanoTime() / 1000, oldnow = now, i = 0;
                 ByteBuffer[] inputBuffers = mMediaCodec.getInputBuffers();
                 oldnow = now;
@@ -516,8 +516,8 @@ public abstract class VideoStream extends MediaStream {
         };
 
 		for (int i=0;i<10;i++) cameraDelegate.getCamera().addCallbackBuffer(new byte[convertor.getBufferSize()]);
-//        cameraDelegate.addListener(callback);
-        cameraDelegate.getCamera().setPreviewCallbackWithBuffer(previewCallback);
+        cameraDelegate.addListener(callback);
+//        cameraDelegate.getCamera().setPreviewCallbackWithBuffer(previewCallback);
         // The packetizer encapsulates the bit stream in an RTP stream and send it over the network
         mPacketizer.setInputStream(new MediaCodecInputStream(mMediaCodec));
         mPacketizer.start();
@@ -672,6 +672,7 @@ public abstract class VideoStream extends MediaStream {
             mCameraLooper.quit();
             mUnlocked = false;
             mPreviewStarted = false;
+            cameraDelegate.removeListener(callback);
         }
     }
 
