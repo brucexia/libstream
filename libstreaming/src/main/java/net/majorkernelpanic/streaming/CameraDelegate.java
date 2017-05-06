@@ -7,7 +7,10 @@ import android.hardware.Camera;
 import android.os.Looper;
 import android.preference.PreferenceManager;
 import android.util.Log;
+import android.view.Display;
+import android.view.Surface;
 import android.view.SurfaceHolder;
+import android.view.WindowManager;
 
 import net.majorkernelpanic.streaming.exceptions.CameraInUseException;
 import net.majorkernelpanic.streaming.exceptions.InvalidSurfaceException;
@@ -58,20 +61,26 @@ public class CameraDelegate {
     protected int mMaxFps = 0;
     protected byte mMode, mRequestedMode;
     Context mContext;
+    Display display;
 
     List<FrameListener> listners = new ArrayList<>();
 
     public interface FrameListener {
-        void onPreviewFrame(byte[] data);
+        void onPreviewFrame(byte[] data, int width, int height, int rotation);
+
+        void onFrameSizeSelected(int width, int height, double rotation);
+
+        void onCameraStarted(boolean success, Throwable error);
     }
 
     public void addListener(FrameListener listener) {
         listners.add(listener);
+        if(mCamera!=null)
         mCamera.setPreviewCallbackWithBuffer(new Camera.PreviewCallback() {
             @Override
             public void onPreviewFrame(byte[] data, Camera camera) {
-                for(FrameListener l: listners){
-                    l.onPreviewFrame(data);
+                for (FrameListener l : listners) {
+                    l.onPreviewFrame(data, mQuality.resX, mQuality.resY, mOrientation);
                 }
             }
         });
@@ -80,11 +89,14 @@ public class CameraDelegate {
     public void removeListener(FrameListener listener) {
         listners.remove(listener);
     }
+    int displayRotation;
 
     public CameraDelegate(Context context) {
         mCameraImageFormat = ImageFormat.NV21;
         mContext = context.getApplicationContext();
         mSettings = PreferenceManager.getDefaultSharedPreferences(mContext);
+        display = ((WindowManager) context.getSystemService(Context.WINDOW_SERVICE)).getDefaultDisplay();
+        displayRotation = display.getRotation();
     }
 
     public VideoQuality getRequestedQuality() {
@@ -139,8 +151,8 @@ public class CameraDelegate {
 
         mCameraOpenedManually = true;
         if (!mPreviewStarted) {
-            if (mSurfaceView.getHolder() == null || !mSurfaceReady){
-                startRequested=true;
+            if (mSurfaceView.getHolder() == null || !mSurfaceReady) {
+                startRequested = true;
                 return;
             }
             createCamera();
@@ -201,6 +213,9 @@ public class CameraDelegate {
                 try {
 
                     mCamera = android.hardware.Camera.open(mCameraId);
+                    for (FrameListener listener : listners) {
+                        listener.onCameraStarted(true, null);
+                    }
 
                 } catch (RuntimeException e) {
                     exception[0] = e;
@@ -214,13 +229,14 @@ public class CameraDelegate {
         lock.acquireUninterruptibly();
         if (exception[0] != null) throw new CameraInUseException(exception[0].getMessage());
     }
+
     boolean startRequested;
 
     public synchronized void createCamera() throws RuntimeException {
         if (mSurfaceView == null)
             throw new InvalidSurfaceException("Invalid surface !");
-        if (mSurfaceView.getHolder() == null || !mSurfaceReady){
-            startRequested=true;
+        if (mSurfaceView.getHolder() == null || !mSurfaceReady) {
+            startRequested = true;
             return;
         }
 //            throw new InvalidSurfaceException("Invalid surface !");
@@ -305,6 +321,10 @@ public class CameraDelegate {
 
         android.hardware.Camera.Parameters parameters = mCamera.getParameters();
         mQuality = VideoQuality.determineClosestSupportedResolution(parameters, mQuality);
+        for (CameraDelegate.FrameListener listener : listners) {
+            listener.onFrameSizeSelected(mQuality.resX, mQuality.resY, mOrientation);
+        }
+
         int[] max = VideoQuality.determineMaximumSupportedFramerate(parameters);
 
         double ratio = (double) mQuality.resX / (double) mQuality.resY;
@@ -325,15 +345,16 @@ public class CameraDelegate {
             mCamera.setPreviewCallbackWithBuffer(new Camera.PreviewCallback() {
                 @Override
                 public void onPreviewFrame(byte[] data, Camera camera) {
-                    for(FrameListener l: listners){
-                        l.onPreviewFrame(data);
+                    for (FrameListener l : listners) {
+                        l.onPreviewFrame(data, mQuality.resX, mQuality.resY, mOrientation);
                     }
                 }
             });
 
             EncoderDebugger debugger = EncoderDebugger.debug(mSettings, mQuality.resX, mQuality.resY);
             final NV21Convertor convertor = debugger.getNV21Convertor();
-            for (int i=0;i<10;i++)mCamera.addCallbackBuffer(new byte[convertor.getBufferSize()]);
+            for (int i = 0; i < 10; i++)
+                mCamera.addCallbackBuffer(new byte[convertor.getBufferSize()]);
 
         } catch (RuntimeException e) {
             destroyCamera();
@@ -462,6 +483,7 @@ public class CameraDelegate {
                 @Override
                 public void surfaceCreated(SurfaceHolder holder) {
                     mSurfaceReady = true;
+                    if(mCamera!=null)
                     startPreview();
                 }
 
@@ -473,6 +495,57 @@ public class CameraDelegate {
             mSurfaceView.getHolder().addCallback(mSurfaceHolderCallback);
 //            mSurfaceReady = true;
         }
+    }
+
+    private void setCameraDisplayOrientation() {
+        Camera.CameraInfo info = new Camera.CameraInfo();
+        Camera.getCameraInfo(mCameraId, info);
+
+        int degrees = 0;
+        switch (displayRotation) {
+            case Surface.ROTATION_0:
+                degrees = 0;
+                break;
+            case Surface.ROTATION_90:
+                degrees = 90;
+                break;
+            case Surface.ROTATION_180:
+                degrees = 180;
+                break;
+            case Surface.ROTATION_270:
+                degrees = 270;
+                break;
+        }
+
+        int rotation;
+
+        if (info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT) {
+            //determine amount to rotate image and call computeFrameRotation()
+            //to have the Frame.ROTATE object ready for CameraDetector to use
+            rotation = (info.orientation + degrees) % 360;
+
+//            computeFrameRotation(rotation);
+
+            //Android mirrors the image that will be displayed on screen, but not the image
+            //that will be sent as bytes[] in onPreviewFrame(), so we compensate for mirroring after
+            //calling computeFrameRotation()
+            rotation = (360 - rotation) % 360; // compensate the mirror
+        } else { // back-facing
+            //determine amount to rotate image and call computeFrameRotation()
+            //to have the Frame.ROTATE object ready for CameraDetector to use
+            rotation = (info.orientation - degrees + 360) % 360;
+
+//            computeFrameRotation(rotation);
+        }
+        if (mCamera != null) {
+            mCamera.setDisplayOrientation(rotation);
+        }
+//        Log.d(CameraDelegate.class.getSimpleName(), String.format("setCameraDisplayOrientation previewWidth %d, previewHeight %d, cameraInfo orientation %d, displayOrientation %d, frameRotation %s",
+//                cameraWrapper.previewWidth, cameraWrapper.previewHeight, info.orientation, rotation, frameRotation));
+        //Now that rotation has been determined (or updated) inform listener of new frame size.
+//        if (listener != null) {
+//            listener.onFrameSizeSelected(cameraWrapper.previewWidth, cameraWrapper.previewHeight, frameRotation);
+//        }
     }
 
 }

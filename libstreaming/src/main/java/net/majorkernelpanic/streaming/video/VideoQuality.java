@@ -24,6 +24,8 @@ import android.hardware.Camera;
 import android.hardware.Camera.Size;
 import android.util.Log;
 
+import net.majorkernelpanic.streaming.CameraDelegate;
+
 /**
  * A class that represents the quality of a video stream. 
  * It contains the resolution, the framerate (in fps) and the bitrate (in bps) of the stream.
@@ -33,7 +35,7 @@ public class VideoQuality {
 	public final static String TAG = "VideoQuality";
 	
 	/** Default video stream quality. */
-	public final static VideoQuality DEFAULT_VIDEO_QUALITY = new VideoQuality(352,288,30,500000);
+	public final static VideoQuality DEFAULT_VIDEO_QUALITY = new VideoQuality(480,320,30,500000);
 
 	/**	Represents a quality for a video stream. */ 
 	public VideoQuality() {}
@@ -121,7 +123,6 @@ public class VideoQuality {
 		if (quality.resX != v.resX || quality.resY != v.resY) {
 			Log.v(TAG,"Resolution modified: "+quality.resX+"x"+quality.resY+"->"+v.resX+"x"+v.resY);
 		}
-		
 		return v;
 	}
 

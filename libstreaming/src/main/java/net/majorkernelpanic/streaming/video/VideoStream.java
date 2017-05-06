@@ -489,7 +489,7 @@ public abstract class VideoStream extends MediaStream {
 //        Camera.PreviewCallback previewCallback = new Camera.PreviewCallback() {
         callback = new CameraDelegate.FrameListener() {
             @Override
-            public void onPreviewFrame(byte[] data) {
+            public void onPreviewFrame(byte[] data, int width, int height, int rotation) {
                 long now = System.nanoTime() / 1000, oldnow = now, i = 0;
                 ByteBuffer[] inputBuffers = mMediaCodec.getInputBuffers();
                 oldnow = now;
@@ -512,6 +512,16 @@ public abstract class VideoStream extends MediaStream {
                 } finally {
                     cameraDelegate.getCamera().addCallbackBuffer(data);
                 }
+            }
+
+            @Override
+            public void onFrameSizeSelected(int width, int height, double rotation) {
+
+            }
+
+            @Override
+            public void onCameraStarted(boolean success, Throwable error) {
+
             }
         };
 
