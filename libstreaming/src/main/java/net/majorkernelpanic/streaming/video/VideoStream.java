@@ -347,6 +347,7 @@ public abstract class VideoStream extends MediaStream {
         mCameraOpenedManually = false;
         if (callback != null) {
             cameraDelegate.removeListener(callback);
+            callback = null;
         }
         stop();
     }
@@ -487,45 +488,47 @@ public abstract class VideoStream extends MediaStream {
         mMediaCodec.start();
 
 //        Camera.PreviewCallback previewCallback = new Camera.PreviewCallback() {
-        callback = new CameraDelegate.FrameListener() {
-            @Override
-            public void onPreviewFrame(byte[] data, int width, int height, int rotation) {
-                long now = System.nanoTime() / 1000, oldnow = now, i = 0;
-                ByteBuffer[] inputBuffers = mMediaCodec.getInputBuffers();
-                oldnow = now;
-                now = System.nanoTime() / 1000;
-                if (i++ > 3) {
-                    i = 0;
-                    //Log.d(TAG,"Measured: "+1000000L/(now-oldnow)+" fps.");
-                }
-                try {
-                    int bufferIndex = mMediaCodec.dequeueInputBuffer(500000);
-                    if (bufferIndex >= 0) {
-                        inputBuffers[bufferIndex].clear();
-                        if (data == null)
-                            Log.e(TAG, "Symptom of the \"Callback buffer was to small\" problem...");
-                        else convertor.convert(data, inputBuffers[bufferIndex]);
-                        mMediaCodec.queueInputBuffer(bufferIndex, 0, inputBuffers[bufferIndex].position(), now, 0);
-                    } else {
-                        Log.e(TAG, "No buffer available !");
+        if (callback == null)
+            callback = new CameraDelegate.FrameListener() {
+                @Override
+                public void onPreviewFrame(byte[] data, int width, int height, int rotation) {
+                    long now = System.nanoTime() / 1000, oldnow = now, i = 0;
+                    ByteBuffer[] inputBuffers = mMediaCodec.getInputBuffers();
+                    oldnow = now;
+                    now = System.nanoTime() / 1000;
+                    if (i++ > 3) {
+                        i = 0;
+                        //Log.d(TAG,"Measured: "+1000000L/(now-oldnow)+" fps.");
                     }
-                } finally {
-                    cameraDelegate.getCamera().addCallbackBuffer(data);
+                    try {
+                        int bufferIndex = mMediaCodec.dequeueInputBuffer(500000);
+                        if (bufferIndex >= 0) {
+                            inputBuffers[bufferIndex].clear();
+                            if (data == null)
+                                Log.e(TAG, "Symptom of the \"Callback buffer was to small\" problem...");
+                            else convertor.convert(data, inputBuffers[bufferIndex]);
+                            mMediaCodec.queueInputBuffer(bufferIndex, 0, inputBuffers[bufferIndex].position(), now, 0);
+                        } else {
+                            Log.e(TAG, "No buffer available !");
+                        }
+                    } finally {
+                        cameraDelegate.getCamera().addCallbackBuffer(data);
+                    }
                 }
-            }
 
-            @Override
-            public void onFrameSizeSelected(int width, int height, int rotation) {
+                @Override
+                public void onFrameSizeSelected(int width, int height, int rotation) {
 
-            }
+                }
 
-            @Override
-            public void onCameraStarted(boolean success, Throwable error) {
+                @Override
+                public void onCameraStarted(boolean success, Throwable error) {
 
-            }
-        };
+                }
+            };
 
-		for (int i=0;i<10;i++) cameraDelegate.getCamera().addCallbackBuffer(new byte[convertor.getBufferSize()]);
+        for (int i = 0; i < 10; i++)
+            cameraDelegate.getCamera().addCallbackBuffer(new byte[convertor.getBufferSize()]);
         cameraDelegate.addListener(callback);
 //        cameraDelegate.getCamera().setPreviewCallbackWithBuffer(previewCallback);
         // The packetizer encapsulates the bit stream in an RTP stream and send it over the network
