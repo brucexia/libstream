@@ -109,7 +109,7 @@ public class RtspServer extends Service {
 
 		/** Called when streaming starts/stops. */
 		void onMessage(RtspServer server, int message);
-		
+		void onServerStarted(int port);
 	}
 
 	/**
@@ -322,8 +322,12 @@ public class RtspServer extends Service {
 
 		public RequestListener() throws IOException {
 			try {
-				mServer = new ServerSocket(mPort);
+				mServer = new ServerSocket(0);
+                mPort = mServer.getLocalPort();
 				start();
+                for(CallbackListener cb: mListeners){
+                    cb.onServerStarted(mPort);
+                }
 			} catch (BindException e) {
 				Log.e(TAG,"Port already in use !");
 				postError(e, ERROR_BIND_FAILED);

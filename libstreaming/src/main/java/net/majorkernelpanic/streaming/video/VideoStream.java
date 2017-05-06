@@ -515,7 +515,7 @@ public abstract class VideoStream extends MediaStream {
             }
 
             @Override
-            public void onFrameSizeSelected(int width, int height, double rotation) {
+            public void onFrameSizeSelected(int width, int height, int rotation) {
 
             }
 
